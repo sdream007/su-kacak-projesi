@@ -1,0 +1,65 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+
+st.set_page_config(page_title="Su Kaçak Analizi", layout="wide")
+
+st.title("\U0001F4C8 Su Dağıtım Sistemi Kaçak Analizi")
+
+uploaded_file = st.file_uploader("Excel veya CSV dosyanızı yükleyin", type=["csv", "xlsx"])
+
+if uploaded_file:
+    if uploaded_file.name.endswith('.csv'):
+        df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8', engine='python')
+    else:
+        df = pd.read_excel(uploaded_file)
+
+    df.columns = df.columns.str.strip()
+    df['Tarih'] = pd.to_datetime(df['Tarih'], dayfirst=True, errors='coerce')
+
+    numeric_cols = ['Mesken sayısı', 'Beklenen (m³/gün)', 'Gerçek Giriş (m³)', 'Kaçak (m³)']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df['Kaçak (m³)'] = df['Kaçak (m³)'].clip(lower=0)
+    df['Harcanan Su (m³)'] = df['Gerçek Giriş (m³)'] - df['Kaçak (m³)']
+    df['Kaçak Oranı'] = df['Kaçak (m³)'] / df['Gerçek Giriş (m³)']
+
+    st.success("Veri başarıyla yüklendi ve işlendi.")
+
+    sokak_risk = df.groupby('Sokak').agg({
+        'Kaçak (m³)': ['sum', 'mean', 'max'],
+        'Gerçek Giriş (m³)': 'sum',
+        'Kaçak Oranı': 'mean',
+        'Mesken sayısı': 'first',
+        'Harcanan Su (m³)': 'sum'
+    })
+
+    sokak_risk.columns = ['Toplam Kaçak (m³)', 'Ortalama Kaçak (m³/gün)', 'Maksimum Kaçak (m³)',
+                         'Toplam Gelen Su (m³)', 'Kaçak Oranı', 'Mesken Sayısı', 'Harcanan Su (m³)']
+
+    sokak_risk = sokak_risk[['Toplam Gelen Su (m³)', 'Harcanan Su (m³)', 'Toplam Kaçak (m³)',
+                             'Ortalama Kaçak (m³/gün)', 'Maksimum Kaçak (m³)', 'Kaçak Oranı', 'Mesken Sayısı']]
+
+    st.subheader("\U0001F4CA Sokak Bazında Kaçak Analizi")
+
+    st.dataframe(sokak_risk.style.format({
+        'Toplam Gelen Su (m³)': '{:,.0f}',
+        'Harcanan Su (m³)': '{:,.0f}',
+        'Toplam Kaçak (m³)': '{:,.2f}',
+        'Ortalama Kaçak (m³/gün)': '{:,.3f}',
+        'Maksimum Kaçak (m³)': '{:,.2f}',
+        'Kaçak Oranı': '{:.2%}'
+    }).background_gradient(cmap='Reds', subset=['Kaçak Oranı']))
+
+    st.subheader("\U0001F4C5 Zaman Serisi Kaçak Analizi")
+
+    selected_street = st.selectbox("Sokak seçin", df['Sokak'].unique())
+    df_street = df[df['Sokak'] == selected_street]
+
+    fig = px.line(df_street, x='Tarih', y='Kaçak (m³)', title=f"{selected_street} - Günlük Kaçak (m³)")
+    st.plotly_chart(fig, use_container_width=True)
+
+else:
+    st.info("Lütfen analiz için bir dosya yükleyin.")
